@@ -385,8 +385,8 @@ class EnemyAI:
         self.entity = entity
 
     def step(self):
-        rand = random.randint(1, 4)
-        if rand == 4:
+        rand = random.randint(1, 3)
+        if rand == 3:
             ability = self.entity.abilities[random.randint(0, len(self.entity.abilities) - 1)]
             ability.use(self.entity)
         else:
