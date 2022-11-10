@@ -11,6 +11,7 @@ DEFAULT_MAX_HP = 20
 DEFAULT_DAMAGE = 4
 ENEMIES = ['Джестер', "Мухомор", "Каменный голем"]
 
+
 class EnemyData:
 
     def __init__(self, id, picture, hp, damage, abilities, name):
@@ -82,8 +83,11 @@ class Game(QMainWindow):
             return None
 
     def clear_save(self):
-        with open("save.txt", 'r+') as file:
-            file.truncate(0)
+        try:
+            with open("save.txt", 'r+') as file:
+                file.truncate(0)
+        except FileNotFoundError:
+            pass
 
     def show_main_menu(self):
         if self.state is not None:
