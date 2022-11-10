@@ -149,6 +149,7 @@ class Cycle:  # цикл сражения - хранит информацию о
         else:
             if not self.player.is_alive():
                 self.game_state.game.save_statistic(self.game_state.difficulty, self.current_move.id)
+                self.game_state.game.clear_save()
                 self.game_state.game.show_main_menu()
                 return
             self.current_move = self.player
