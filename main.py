@@ -106,6 +106,9 @@ class Game(QMainWindow):
         self.state.show()
 
     def game_over(self):
+        self.save_statistic(self.state.difficulty, self.state.cycle.enemy.id)
+        self.state = DeathPopup(self.state.difficulty)
+        self.state.show()
         self.clear_save()
 
     def save_statistic(self, difficulty, killer, date=datetime.date.today()):
@@ -148,9 +151,7 @@ class Cycle:  # цикл сражения - хранит информацию о
             self.step()
         else:
             if not self.player.is_alive():
-                self.game_state.game.save_statistic(self.game_state.difficulty, self.current_move.id)
-                self.game_state.game.clear_save()
-                self.game_state.game.show_main_menu()
+                self.game_state.game.game_over()
                 return
             self.current_move = self.player
             self.current_move.step()
@@ -199,6 +200,7 @@ class GameWindow(QWidget):
         uic.loadUi('game_menu.ui', self)
         self.attackButton.clicked.connect(self.attack)
         self.healButton.clicked.connect(self.heal)
+        self.deathButton.clicked.connect(self.game.game_over)
 
     def write(self, message):
         self.textBrowser.append(message)
@@ -240,6 +242,18 @@ class GameWindow(QWidget):
 
     def closeEvent(self, event):
         self.game.save(self)
+
+
+class DeathPopup(QWidget):
+
+    def __init__(self, score):
+        super().__init__()
+        self.score = score
+        self.initUi()
+
+    def initUi(self):
+        uic.loadUi('game_over_popup.ui', self)
+        self.scoreLabel.setText(f'Счёт: ' + self.score)
 
 
 class Entity:
