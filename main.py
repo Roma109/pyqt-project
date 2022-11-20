@@ -14,42 +14,49 @@ ENEMIES = ['Джестер', "Мухомор", "Каменный голем"]
 
 class EnemyData:
 
-    def __init__(self, id, picture, hp, damage, abilities, name):
+    def __init__(self, id, picture, hp, damage, crit_chance, crit_multiplier, abilities, name, ai):
         self.id = id
         self.picture = picture
         self.hp = hp
         self.damage = damage
+        self.crit_chance = crit_chance
+        self.crit_multiplier = crit_multiplier
         self.abilities = abilities
         self.name = name
+        self.ai = ai
 
 
 class EnemyGenerator:
 
     def __init__(self, game_state):
         self.game_state = game_state
-        self.enemies = [EnemyData(0, QPixmap('assets\\enemies\\clown.jpg'), 5, 5, [HealingAbility()], ENEMIES[0]),
-                        EnemyData(1, QPixmap('assets\\enemies\\mushroom.jpg'), 20, 2, [HealingAbility()], ENEMIES[1]),
-                        EnemyData(2, QPixmap('assets\\enemies\\stone-golem.png'), 30, 1,
-                                  [HealingAbility(), BlockAbility()], ENEMIES[2])]
+        self.enemies = [EnemyData(0, QPixmap('assets\\enemies\\clown.jpg'), 5, 5, 0.1, 1.5,
+                                  [AttackAbility()], ENEMIES[0], EnemyAI),
+                        EnemyData(1, QPixmap('assets\\enemies\\mushroom.jpg'), 20, 2, 0.5, 1.5,
+                                  [HealingAbility(), AttackAbility()], ENEMIES[1], EnemyAI),
+                        EnemyData(2, QPixmap('assets\\enemies\\stone-golem.png'), 30, 1, 0.5, 2,
+                                  [HealingAbility(), BlockAbility(), AttackAbility()], ENEMIES[2], GolemAI)]
 
     def generate_enemy(self, difficulty, id=-1, hp=-1):
         enemy_data = self.enemies[id if id != -1 else random.randint(0, len(self.enemies) - 1)]
         enemy = Enemy(enemy_data.id,
                       int(enemy_data.hp * 1.25 ** difficulty),
                       int(enemy_data.damage * 1.25 ** difficulty),
+                      enemy_data.crit_chance,
+                      enemy_data.crit_multiplier,
                       enemy_data.abilities,
                       enemy_data.name,
                       self.game_state,
-                      enemy_data.picture)
+                      enemy_data.picture,
+                      enemy_data.ai)
         if hp != -1:
             enemy.hp = hp
         return enemy
 
 
-class Game(QMainWindow):
+class Game:
 
     def __init__(self):
-        super().__init__()
         self.state = None
         self.show_main_menu()
 
@@ -107,7 +114,8 @@ class Game(QMainWindow):
 
     def game_over(self):
         self.save_statistic(self.state.difficulty, self.state.cycle.enemy.id)
-        self.state = DeathPopup(self.state.difficulty)
+        self.state.close()
+        self.state = DeathPopup(self, self.state.difficulty)
         self.state.show()
         self.clear_save()
 
@@ -124,7 +132,7 @@ class Game(QMainWindow):
     def load_best_stat(self):
         connection = sqlite3.connect('database.db')
         cursor = connection.cursor()
-        result = cursor.execute("SELECT * FROM 'STATISTICS' ORDER BY RESULT ASC").fetchall()
+        result = cursor.execute("SELECT * FROM 'STATISTICS' ORDER BY RESULT DESC").fetchall()
         if len(result) == 0:
             return ()
         return result[0]
@@ -166,7 +174,7 @@ class MainMenu(QWidget):
         self.initUi()
 
     def initUi(self):
-        uic.loadUi('main_menu.ui', self)
+        uic.loadUi('assets\\ui\\main_menu.ui', self)
         self.newGameButton.clicked.connect(self.game.new_game)
         self.loadGameButton.clicked.connect(self.game.load_game)
         best_stat = self.game.load_best_stat()
@@ -197,22 +205,19 @@ class GameWindow(QWidget):
         return self.enemy_generator.generate_enemy(difficulty)
 
     def initUi(self):
-        uic.loadUi('game_menu.ui', self)
-        self.attackButton.clicked.connect(self.attack)
-        self.healButton.clicked.connect(self.heal)
+        uic.loadUi('assets\\ui\\game_menu.ui', self)
+        self.attackButton.clicked.connect(self.use_ability)
+        self.healButton.clicked.connect(self.use_ability)
         self.deathButton.clicked.connect(self.game.game_over)
+        self.abilities = {self.attackButton: self.player.abilities[1],
+                          self.healButton: self.player.abilities[0]}
+
+    def use_ability(self):
+        self.abilities[self.sender()].use(self.player)
+        self.cycle.step()
 
     def write(self, message):
         self.textBrowser.append(message)
-
-    def attack(self):
-        # TODO: вынести атаку в способности
-        self.player.attack(self.cycle.enemy)
-        self.cycle.step()
-
-    def heal(self):
-        self.player.abilities[0].use(self.player)
-        self.cycle.step()
 
     def serve_cycle(self, enemy=None):
         self.textBrowser.clear()
@@ -246,22 +251,28 @@ class GameWindow(QWidget):
 
 class DeathPopup(QWidget):
 
-    def __init__(self, score):
+    def __init__(self, game, score):
         super().__init__()
+        self.game = game
         self.score = score
         self.initUi()
 
     def initUi(self):
-        uic.loadUi('game_over_popup.ui', self)
-        self.scoreLabel.setText(f'Счёт: ' + self.score)
+        uic.loadUi('assets\\ui\\game_over_popup.ui', self)
+        self.scoreLabel.setText(f'Счёт: ' + str(self.score))
+
+    def closeEvent(self, event):
+        self.game.show_main_menu()
 
 
 class Entity:
 
-    def __init__(self, maxhp, damage, abilities, name, game_state):
+    def __init__(self, maxhp, damage, crit_chance, crit_modifier, abilities, name, game_state):
         self.maxhp = maxhp
         self.hp = maxhp
         self.dmg = damage
+        self.crit_chance = crit_chance
+        self.crit_modifier = crit_modifier
         self.abilities = abilities
         self.name = name
         self.game_state = game_state
@@ -293,6 +304,9 @@ class Entity:
                               .replace('%target%', target.name)
                               .replace('%entity%', self.name))
         damage = self.get_damage()
+        if random.uniform(0, 1) <= self.crit_chance:
+            damage *= self.crit_modifier
+            self.game_state.write("Критическая атака!")
         self.game_state.write(f"Нанесено урона: {int(target.damage(damage))}")
 
     def add_effect(self, effect):
@@ -309,7 +323,7 @@ class Entity:
 class Player(Entity):
 
     def __init__(self, game_state, difficulty=1, maxhp=DEFAULT_MAX_HP, damage=DEFAULT_DAMAGE):
-        super().__init__(maxhp, damage, [HealingAbility()], 'Игрок', game_state)
+        super().__init__(maxhp, damage, 0.5, 2, [HealingAbility(), AttackAbility()], 'Игрок', game_state)
         self.killed = 0
         if difficulty > 1:
             self.upgrade(difficulty)
@@ -325,11 +339,11 @@ class Player(Entity):
 
 class Enemy(Entity):
 
-    def __init__(self, id, maxhp, damage, abilities, name, game_state, picture):
-        super().__init__(maxhp, damage, abilities, name, game_state)
+    def __init__(self, id, maxhp, damage, crit_chance, crit_modifier, abilities, name, game_state, picture, ai):
+        super().__init__(maxhp, damage, crit_chance , crit_modifier, abilities, name, game_state)
         self.id = id
         self.picture = picture
-        self.ai = EnemyAI(self)
+        self.ai = ai(self)
 
     def move(self):
         self.ai.step()
@@ -394,18 +408,42 @@ class BlockAbility(Ability):
         entity.add_effect(BlockEffect(1, 0.5, entity))
 
 
+class AttackAbility(Ability):
+
+    def __init__(self):
+        super().__init__('атака')
+
+    def use(self, entity):
+        entity.game_state.write(f'{entity.name} использует атаку')
+        player = entity.game_state.player
+        if entity == player:
+            entity.attack(entity.game_state.cycle.enemy)
+        else:
+            entity.attack(player)
+
+
 class EnemyAI:
 
     def __init__(self, entity):
         self.entity = entity
 
     def step(self):
+        ability = self.entity.abilities[random.randint(0, len(self.entity.abilities) - 1)]
+        ability.use(self.entity)
+
+
+class GolemAI(EnemyAI):
+
+    def __init__(self, entity):
+        super().__init__(entity)
+
+    def step(self):
         rand = random.randint(1, 3)
         if rand == 3:
-            ability = self.entity.abilities[random.randint(0, len(self.entity.abilities) - 1)]
-            ability.use(self.entity)
-        else:
             self.entity.attack(self.entity.game_state.player)
+        else:
+            ability = self.entity.abilities[random.randint(0, 1)]
+            ability.use(self.entity)
 
 
 def main():
