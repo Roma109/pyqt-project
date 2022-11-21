@@ -1,0 +1,1 @@
+pyinstaller --clean -n="daggerfall" --onefile  --noconsole --noconfirm --add-data="assets/enemies/*;assets/enemies" --add-data="assets/ui/*;assets/ui" --add-data="database.db;." main.py
